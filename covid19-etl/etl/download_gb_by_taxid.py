@@ -5,6 +5,7 @@ import numpy
 import yaml
 from Bio import Entrez
 from Bio import SeqIO
+import hashlib
 
 from etl import base
 from helper.metadata_helper import MetadataHelper
@@ -135,13 +136,13 @@ class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
                     print("Going to download records: {}".format(id_chunk))
                 handle = Entrez.efetch(
                     db="nucleotide",
-                    rettype=self.seq_format,
+                    rettype=self.data_format,
                     retmode="text",
                     id=','.join(id_chunk)
                 )
                 # Creating the SeqRecord objects here makes filter() easier
                 self.records = itertools.chain(
-                    self.records, SeqIO.parse(handle, self.seq_format))
+                    self.records, SeqIO.parse(handle, self.data_format))
         except (RuntimeError) as exception:
             print("Error retrieving sequences using id '" +
                   str(self.taxid) + "':" + str(exception))
@@ -157,7 +158,8 @@ class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
 
     def write(self):
         virus_genome_submitter_id = format_virus_genome_submitter_id(
-            data_category, data_type, data_format, source
+            data_category, data_type, data_format, source, type,
+            file_name, file_size, md5sum
         )
 
         for record in self.records:
@@ -167,7 +169,9 @@ class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
                 "data_format": self.data_format,
                 "source": self.source,
                 "submitter_id": virus_genome_submitter_id,
-                "description": record.format(self.data_format),
+                "file_name": record.id,
+                "md5sum": hashlib.md5(record.format(self.data_format)).hexdigest(),
+                "file_size": len(record.format(self.data_format).encode('utf-8')),
                 "projects": [{"code": self.project_code}]
             }
             self.virus_genomes.append(virus_genome)
