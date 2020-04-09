@@ -131,14 +131,14 @@ class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
         num_batches = int(len(self.nt_ids)/self.retmax) + 1
 
         try:
-            for id_chunk in numpy.array_split(numpy.array(self.nt_ids), num_batches):
+            for id_batch in numpy.array_split(numpy.array(self.nt_ids), num_batches):
                 if self.verbose:
-                    print("Going to download records: {}".format(id_chunk))
+                    print("Going to download records: {}".format(id_batch))
                 handle = Entrez.efetch(
                     db="nucleotide",
                     rettype=self.data_format,
                     retmode="text",
-                    id=','.join(id_chunk)
+                    id=','.join(id_batch)
                 )
                 # Creating the SeqRecord objects here makes filter() easier
                 self.records = itertools.chain(
