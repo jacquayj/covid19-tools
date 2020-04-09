@@ -26,6 +26,7 @@ To Do
 
 '''
 
+
 class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
 
     def __init__(self, base_url, access_token):
@@ -45,19 +46,36 @@ class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
         self.retmax = config['retmax']
         self.program_name = config['program_name']
         self.project_code = config['project_code']
+        self.data_category = config['data_category']
+        self.data_type = config['data_type']
+        self.data_format = config['data_format']
+        self.virus_genomes = []
+        self.summary_reports = []
 
         self.metadata_helper = MetadataHelper(
             base_url=self.base_url,
             program_name=self.program_name,
             project_code=self.project_code,
-            access_token=access_token,
+            access_token=access_token
         )
 
     def files_to_submissions(self):
+        latest_submitted_date = self.metadata_helper.get_latest_submitted_data_virus_genome()
+        today = datetime.date.today()
+        if latest_submitted_date == today:
+            print("Nothing to submit: today and latest submitted date are the same.")
+            return
+
         self.search()
         self.filter()
 
     def submit_metadata(self):
+        latest_submitted_date = self.metadata_helper.get_latest_submitted_data_virus_genome()
+        today = datetime.date.today()
+        if latest_submitted_date == today:
+            print("Nothing to submit: today and latest submitted date are the same.")
+            return
+
         self.write()
 
     def search(self):
@@ -71,9 +89,9 @@ class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
 
         if self.recurse == True:
             try:
-                handle = Entrez.esearch(db="nuccore", 
+                handle = Entrez.esearch(db="nuccore",
                                         idtype="acc",
-                                        retmax=5000, 
+                                        retmax=5000,
                                         term="txid{}[Organism:exp]".format(self.taxid))
                 records = Entrez.read(handle)
                 handle.close()
@@ -139,15 +157,42 @@ class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
             self.records = filtered
 
     def write(self):
+        virus_genome_submitter_id = format_virus_genome_submitter_id(
+            data_category, data_type, data_format
+        )
+
+        virus_genome = {
+            "data_category": self.data_category,
+            "data_type": self.data_type,
+            "data_format": self.data_format,
+            "submitter_id": virus_genome_submitter_id,
+            "projects": [{"code": self.project_code}]
+        }
+
+        summary_report_submitter_id = format_summary_report_submitter_id(
+            virus_genome_submitter_id, date
+        )
+
+        summary_report = {
+            "submitter_id": summary_report_submitter_id,
+            "date": date,
+            "virus_genomes": [{"submitter_id": virus_genome_submitter_id}]
+        }
+
+        self.virus_genomes.append(virus_genome)
+        self.summary_reports.append(summary_report)
+
         if self.split:
+            # Multiple files - probably won't be used
             for record in self.records:
                 seqfile = record.name + '.' + self.seq_format
                 #SeqIO.write(record, seqfile, self.seq_format)
                 self.metadata_helper.add_record_to_submit(seqfile)
             self.metadata_helper.batch_submit_records()
         else:
+            # A single file with multiple genomes is submitted
             seqfile = 'taxid-' + str(self.taxid) + '.' + self.seq_format
             #SeqIO.write(self.records, seqfile, self.seq_format)
             self.metadata_helper.add_record_to_submit(seqfile)
             self.metadata_helper.batch_submit_records()
-
+            
