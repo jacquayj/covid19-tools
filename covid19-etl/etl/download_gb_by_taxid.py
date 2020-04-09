@@ -32,7 +32,7 @@ class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
     def __init__(self, base_url, access_token):
         super().__init__(base_url, access_token)
         script = os.path.splitext(os.path.basename(__file__))[0]
-        # Get all constants from YAML, including program_name, project_code
+        # Get all input strings from YAML, including program_name, project_code
         with open('{}.yaml'.format(script)) as f:
             config = yaml.load(f, Loader=yaml.FullLoader)
         self.email = config['email']
@@ -42,15 +42,14 @@ class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
         self.recurse = config['recurse']
         self.verbose = config['verbose']
         self.taxid = config['taxid']
-        self.seq_format = config['seq_format']
         self.retmax = config['retmax']
         self.program_name = config['program_name']
         self.project_code = config['project_code']
         self.data_category = config['data_category']
         self.data_type = config['data_type']
         self.data_format = config['data_format']
+        self.source = config['source']
         self.virus_genomes = []
-        self.summary_reports = []
 
         self.metadata_helper = MetadataHelper(
             base_url=self.base_url,
@@ -91,7 +90,7 @@ class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
             try:
                 handle = Entrez.esearch(db="nuccore",
                                         idtype="acc",
-                                        retmax=5000,
+                                        retmax=10000,
                                         term="txid{}[Organism:exp]".format(self.taxid))
                 records = Entrez.read(handle)
                 handle.close()
@@ -128,10 +127,10 @@ class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
     def efetch(self):
         Entrez.email = self.email
         # Split the list of ids into batches of 'retmax' size for Entrez
-        num_chunks = int(len(self.nt_ids)/self.retmax) + 1
+        num_batches = int(len(self.nt_ids)/self.retmax) + 1
 
         try:
-            for id_chunk in numpy.array_split(numpy.array(self.nt_ids), num_chunks):
+            for id_chunk in numpy.array_split(numpy.array(self.nt_ids), num_batches):
                 if self.verbose:
                     print("Going to download records: {}".format(id_chunk))
                 handle = Entrez.efetch(
@@ -158,41 +157,24 @@ class DOWNLOAD_GB_BY_TAXID(base.BaseETL):
 
     def write(self):
         virus_genome_submitter_id = format_virus_genome_submitter_id(
-            data_category, data_type, data_format
+            data_category, data_type, data_format, source
         )
 
-        virus_genome = {
-            "data_category": self.data_category,
-            "data_type": self.data_type,
-            "data_format": self.data_format,
-            "submitter_id": virus_genome_submitter_id,
-            "projects": [{"code": self.project_code}]
-        }
+        for record in self.records:
+            virus_genome = {
+                "data_category": self.data_category,
+                "data_type": self.data_type,
+                "data_format": self.data_format,
+                "source": self.source,
+                "submitter_id": virus_genome_submitter_id,
+                "description": record.format(self.data_format),
+                "projects": [{"code": self.project_code}]
+            }
+            self.virus_genomes.append(virus_genome)
 
-        summary_report_submitter_id = format_summary_report_submitter_id(
-            virus_genome_submitter_id, date
-        )
-
-        summary_report = {
-            "submitter_id": summary_report_submitter_id,
-            "date": date,
-            "virus_genomes": [{"submitter_id": virus_genome_submitter_id}]
-        }
-
-        self.virus_genomes.append(virus_genome)
-        self.summary_reports.append(summary_report)
-
-        if self.split:
-            # Multiple files - probably won't be used
-            for record in self.records:
-                seqfile = record.name + '.' + self.seq_format
-                #SeqIO.write(record, seqfile, self.seq_format)
-                self.metadata_helper.add_record_to_submit(seqfile)
-            self.metadata_helper.batch_submit_records()
-        else:
-            # A single file with multiple genomes is submitted
-            seqfile = 'taxid-' + str(self.taxid) + '.' + self.seq_format
-            #SeqIO.write(self.records, seqfile, self.seq_format)
-            self.metadata_helper.add_record_to_submit(seqfile)
-            self.metadata_helper.batch_submit_records()
-            
+        print("Submitting virus_genome data")
+        for genome in self.virus_genomes:
+            genome_record = {"type": "virus_genome"}
+            genome_record.update(genome)
+            self.metadata_helper.add_record_to_submit(genome_record)
+        self.metadata_helper.batch_submit_records()

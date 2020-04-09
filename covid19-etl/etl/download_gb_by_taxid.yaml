@@ -12,3 +12,4 @@ project_code: VIRAL_GENOME
 data_category: Annotated Sequence
 data_type: Complete Genomic Sequence
 data_format: gb
+source: NCBI
